@@ -59,7 +59,9 @@ const Header: React.FC<HeaderProps> = ({ data, onFileUpload }) => {
                              <Server className="w-4 h-4 text-blue-500" />
                             <div>
                                 <p className="text-slate-500 text-xs uppercase font-bold">服务器</p>
-                                <p className="text-white font-medium truncate max-w-[150px]">{data.serverName}</p>
+                                <p className="text-white font-medium break-all max-w-[340px] leading-snug">
+                                    {data.serverName}
+                                </p>
                             </div>
                         </div>
                     </div>

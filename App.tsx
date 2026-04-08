@@ -2,13 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import Header from './components/Header';
 import Leaderboard from './components/Leaderboard';
 import DriverDetail from './components/DriverDetail';
-import { AccResultData, CarPerformanceClass, getCarClassByModelId } from './types';
+import { AccResultData, CAR_MODELS, CarPerformanceClass, Penalty, getCarClassByModelId } from './types';
 import { Upload } from 'lucide-react';
 import {
     readAccResultJsonFile,
     alertAccResultFileError,
     dragEventHasFiles,
     sortLeaderboardLinesForDisplay,
+    rerankLeaderboardByRaceRules,
+    exportAllDataToJSON,
 } from './utils';
 
 export type LeaderboardClassFilter = 'all' | CarPerformanceClass;
@@ -18,8 +20,10 @@ const App: React.FC = () => {
     const [data, setData] = useState<AccResultData | null>(null);
     const [selectedCarId, setSelectedCarId] = useState<number | null>(null);
     const [manualPenaltyMsByCarId, setManualPenaltyMsByCarId] = useState<Record<number, number>>({});
+    const [manualDsqByCarId, setManualDsqByCarId] = useState<Record<number, boolean>>({});
     const [isFileDragOver, setIsFileDragOver] = useState(false);
     const [classFilter, setClassFilter] = useState<LeaderboardClassFilter>('all');
+    const [useRerankedLeaderboard, setUseRerankedLeaderboard] = useState(false);
     const emptyFileInputRef = useRef<HTMLInputElement>(null);
 
     // Initial select first driver if data exists
@@ -32,7 +36,9 @@ const App: React.FC = () => {
     const handleFileUpload = (newData: AccResultData) => {
         setData(newData);
         setManualPenaltyMsByCarId({});
+        setManualDsqByCarId({});
         setClassFilter('all');
+        setUseRerankedLeaderboard(false);
         if (newData.sessionResult.leaderBoardLines.length > 0) {
             setSelectedCarId(newData.sessionResult.leaderBoardLines[0].car.carId);
         }
@@ -44,12 +50,19 @@ const App: React.FC = () => {
             ...(data.penalties ?? []),
             ...(data.post_race_penalties ?? []),
         ];
-        const sorted = sortLeaderboardLinesForDisplay(
-            data.sessionResult.leaderBoardLines,
-            data.sessionType,
-            penaltiesMerged,
-            manualPenaltyMsByCarId
-        );
+        const sorted = useRerankedLeaderboard
+            ? rerankLeaderboardByRaceRules(
+                data.sessionResult.leaderBoardLines,
+                data.sessionType,
+                penaltiesMerged,
+                manualPenaltyMsByCarId
+            )
+            : sortLeaderboardLinesForDisplay(
+                data.sessionResult.leaderBoardLines,
+                data.sessionType,
+                penaltiesMerged,
+                manualPenaltyMsByCarId
+            );
         const visible = sorted.filter(
             (l) => getCarClassByModelId(l.car.carModel) === classFilter
         );
@@ -58,7 +71,7 @@ const App: React.FC = () => {
             if (prev != null && visible.some((l) => l.car.carId === prev)) return prev;
             return visible[0].car.carId;
         });
-    }, [classFilter, data, manualPenaltyMsByCarId]);
+    }, [classFilter, data, manualPenaltyMsByCarId, useRerankedLeaderboard]);
 
     const loadFromFile = async (file: File) => {
         try {
@@ -120,6 +133,17 @@ const App: React.FC = () => {
         });
     };
 
+    const setManualDsqForCar = (carId: number, enabled: boolean) => {
+        setManualDsqByCarId((prev) => {
+            if (!enabled) {
+                const next = { ...prev };
+                delete next[carId];
+                return next;
+            }
+            return { ...prev, [carId]: true };
+        });
+    };
+
     const sessionResult = data?.sessionResult ?? {
         leaderBoardLines: [],
         bestlap: 0,
@@ -128,9 +152,124 @@ const App: React.FC = () => {
         type: 0,
     };
     const laps = data?.laps ?? [];
-    const penalties = data
+    const penaltiesBase = data
         ? [...(data.penalties ?? []), ...(data.post_race_penalties ?? [])]
         : [];
+    const manualDsqPenalties: Penalty[] = Object.keys(manualDsqByCarId).map((carIdText) => ({
+        carId: Number(carIdText),
+        driverIndex: -1,
+        reason: 'Manual DSQ',
+        penalty: 'Disqualified',
+        penaltyValue: 0,
+        violationInLap: -1,
+        clearedInLap: -1,
+    }));
+    const penalties = [...penaltiesBase, ...manualDsqPenalties];
+    const handleExportJson = () => {
+        if (!data) return;
+        const rankingLines = useRerankedLeaderboard
+            ? rerankLeaderboardByRaceRules(
+                data.sessionResult.leaderBoardLines,
+                data.sessionType,
+                penalties,
+                manualPenaltyMsByCarId
+            )
+            : sortLeaderboardLinesForDisplay(
+                data.sessionResult.leaderBoardLines,
+                data.sessionType,
+                penalties,
+                manualPenaltyMsByCarId
+            );
+        const isDsq = (carId: number) =>
+            penalties.some((p) => p.carId === carId && p.penalty === 'Disqualified');
+        const validLeader = rankingLines.find((line) => !isDsq(line.car.carId));
+        const leaderTime = data.sessionType === 'R'
+            ? (validLeader?.timing.totalTime ?? 0)
+            : (validLeader?.timing.bestLap ?? 0);
+        const manualPenaltyEntries = [
+            ...Object.entries(manualPenaltyMsByCarId)
+                .filter(([, ms]) => ms > 0)
+                .map(([carIdText, ms]) => ({
+                    carId: Number(carIdText),
+                    type: 'TimePenalty',
+                    valueMs: ms,
+                    reason: 'Manual Time Penalty',
+                })),
+            ...Object.keys(manualDsqByCarId).map((carIdText) => ({
+                carId: Number(carIdText),
+                type: 'Disqualified',
+                valueMs: 0,
+                reason: 'Manual DSQ',
+            })),
+        ];
+        const lapsByCar = data.sessionResult.leaderBoardLines.map((line) => {
+            const carId = line.car.carId;
+            const carLaps = data.laps
+                .filter((lap) => lap.carId === carId)
+                .map((lap, lapIndex) => ({
+                    lapNumber: lapIndex + 1,
+                    driverIndex: lap.driverIndex,
+                    lapTime: lap.laptime,
+                    isValidForBest: lap.isValidForBest,
+                    splits: lap.splits,
+                }));
+            return {
+                carId,
+                raceNumber: line.car.raceNumber,
+                carModel: line.car.carModel,
+                carName: CAR_MODELS[line.car.carModel] || `车型 ${line.car.carModel}`,
+                drivers: line.car.drivers,
+                laps: carLaps,
+            };
+        });
+
+        exportAllDataToJSON(
+            {
+                schemaVersion: '2.0',
+                exportedAt: new Date().toISOString(),
+                session: {
+                    sessionType: data.sessionType,
+                    trackName: data.trackName,
+                    serverName: data.serverName,
+                    rankingMode: useRerankedLeaderboard ? 'reranked' : 'official',
+                },
+                finalRanking: rankingLines.map((line, index) => {
+                    const carId = line.car.carId;
+                    const status = isDsq(carId) ? 'DSQ' : 'OK';
+                    const officialTime = data.sessionType === 'R' ? line.timing.totalTime : line.timing.bestLap;
+                    const gapToLeader =
+                        status === 'DSQ' || !leaderTime || !officialTime || officialTime === 2147483647
+                            ? null
+                            : Math.max(0, officialTime - leaderTime);
+                    return {
+                        position: status === 'DSQ' ? null : index + 1,
+                        status,
+                        carId,
+                        raceNumber: line.car.raceNumber,
+                        driverName:
+                            `${line.currentDriver.firstName} ${line.currentDriver.lastName}`.trim() ||
+                            line.currentDriver.shortName,
+                        carModel: line.car.carModel,
+                        carName: CAR_MODELS[line.car.carModel] || `车型 ${line.car.carModel}`,
+                        carClass: getCarClassByModelId(line.car.carModel),
+                        lapCount: line.timing.lapCount,
+                        officialTime,
+                        bestLap: line.timing.bestLap,
+                        gapToLeaderMs: gapToLeader,
+                    };
+                }),
+                penalties: {
+                    system: penaltiesBase,
+                    manual: manualPenaltyEntries,
+                },
+                lapsByCar,
+                rawData: data,
+            },
+            data.trackName,
+            data.sessionType,
+            data.serverName
+        );
+    };
 
     return (
         <div className="min-h-screen flex flex-col bg-slate-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
@@ -206,6 +345,9 @@ const App: React.FC = () => {
                                 sessionName={data.serverName}
                                 classFilter={classFilter}
                                 onClassFilterChange={setClassFilter}
+                                useRerankedLeaderboard={useRerankedLeaderboard}
+                                onUseRerankedLeaderboardChange={setUseRerankedLeaderboard}
+                                onExportJson={handleExportJson}
                             />
                         </div>
 
@@ -221,6 +363,8 @@ const App: React.FC = () => {
                                     penalties={penalties}
                                     manualPenaltyMsByCarId={manualPenaltyMsByCarId}
                                     onManualPenaltyChange={setManualPenaltyForCar}
+                                    manualDsqByCarId={manualDsqByCarId}
+                                    onManualDsqChange={setManualDsqForCar}
                                 />
                             </div>
                         </div>

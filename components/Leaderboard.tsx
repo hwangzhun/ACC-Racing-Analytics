@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     LeaderboardLine,
     CAR_MODELS,
@@ -16,10 +16,12 @@ import {
     getCarSessionPenaltyBadgeLabels,
     carHasNonDsqJsonPenalties,
     sortLeaderboardLinesForDisplay,
+    rerankLeaderboardByRaceRules,
+    detectLeaderboardAnomalies,
     hasAnyManualPenaltyMs,
     getRaceAdjustedFinishMs,
 } from '../utils';
-import { Crown, Timer, Download } from 'lucide-react';
+import { Crown, Timer, Download, AlertTriangle, ArrowUpDown, X } from 'lucide-react';
 
 type LeaderboardClassFilter = 'all' | CarPerformanceClass;
 
@@ -41,6 +43,9 @@ interface LeaderboardProps {
     sessionName?: string;
     classFilter: LeaderboardClassFilter;
     onClassFilterChange: (filter: LeaderboardClassFilter) => void;
+    useRerankedLeaderboard: boolean;
+    onUseRerankedLeaderboardChange: (enabled: boolean) => void;
+    onExportJson?: () => void;
 }
 
 const Leaderboard: React.FC<LeaderboardProps> = ({
@@ -54,12 +59,80 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
     sessionName = '',
     classFilter,
     onClassFilterChange,
+    useRerankedLeaderboard,
+    onUseRerankedLeaderboardChange,
+    onExportJson,
 }) => {
-    const sortedLines = sortLeaderboardLinesForDisplay(lines, sessionType, penalties, manualPenaltyMsByCarId);
+    const [showRerankModal, setShowRerankModal] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
+    const sortedLines = useRerankedLeaderboard
+        ? rerankLeaderboardByRaceRules(lines, sessionType, penalties, manualPenaltyMsByCarId)
+        : sortLeaderboardLinesForDisplay(lines, sessionType, penalties, manualPenaltyMsByCarId);
+    const rawSortedLines = sortLeaderboardLinesForDisplay(lines, sessionType, penalties, manualPenaltyMsByCarId);
     const visibleLines =
         classFilter === 'all'
             ? sortedLines
             : sortedLines.filter((l) => getCarClassByModelId(l.car.carModel) === classFilter);
+    const anomalies = detectLeaderboardAnomalies(sortedLines, sessionType, penalties, manualPenaltyMsByCarId);
+    const hasAnomaly = anomalies.length > 0;
+    const anomalyRaceNumbers = Array.from(
+        new Set(
+            anomalies.flatMap((a) => [a.frontRaceNumber, a.behindRaceNumber]).filter((n) => Number.isFinite(n))
+        )
+    ).sort((a, b) => a - b);
+    const rerankChanges = useMemo(() => {
+        if (sessionType !== 'R') return [];
+        const beforeMap = new Map<number, number>();
+        rawSortedLines.forEach((line, idx) => {
+            beforeMap.set(line.car.carId, idx + 1);
+        });
+        const afterLines = rerankLeaderboardByRaceRules(lines, sessionType, penalties, manualPenaltyMsByCarId);
+        const changes = afterLines
+            .map((line, idx) => {
+                const oldRank = beforeMap.get(line.car.carId);
+                const newRank = idx + 1;
+                if (!oldRank || oldRank === newRank) return null;
+                const driverName =
+                    `${line.currentDriver.firstName} ${line.currentDriver.lastName}`.trim() ||
+                    line.currentDriver.shortName;
+                return {
+                    carId: line.car.carId,
+                    raceNumber: line.car.raceNumber,
+                    driverName,
+                    oldRank,
+                    newRank,
+                    delta: oldRank - newRank,
+                };
+            })
+            .filter((x): x is NonNullable<typeof x> => x != null)
+            .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+        return changes;
+    }, [lines, sessionType, penalties, manualPenaltyMsByCarId, rawSortedLines]);
+
+    const handleRerankToggle = () => {
+        const next = !useRerankedLeaderboard;
+        onUseRerankedLeaderboardChange(next);
+        if (next && sessionType === 'R') {
+            setShowRerankModal(true);
+        }
+    };
+    const handleExportCsv = () => {
+        exportLeaderboardToCSV(
+            lines,
+            sessionType,
+            penalties,
+            trackName,
+            sessionName,
+            CAR_MODELS,
+            manualPenaltyMsByCarId,
+            sortedLines
+        );
+        setShowExportModal(false);
+    };
+    const handleExportJson = () => {
+        onExportJson?.();
+        setShowExportModal(false);
+    };
 
     const isDisqualified = (carId: number): boolean =>
         penalties.some((p) => p.carId === carId && p.penalty === 'Disqualified');
@@ -74,8 +147,6 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
         isRace && anyManual && leaderLine && !isDisqualified(leaderLine.car.carId)
             ? getRaceAdjustedFinishMs(leaderLine, penalties, manualPenaltyMsByCarId)
             : null;
-    const [hoverCarId, setHoverCarId] = useState<number | null>(null);
-
     return (
         <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-2xl">
             <div className="p-4 bg-slate-800/50 border-b border-slate-700 flex justify-between items-center gap-3 flex-wrap">
@@ -109,6 +180,21 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
+                    {sessionType === 'R' ? (
+                        <button
+                            type="button"
+                            onClick={handleRerankToggle}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors ${
+                                useRerankedLeaderboard
+                                    ? 'bg-emerald-900/40 border-emerald-600/70 text-emerald-300'
+                                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'
+                            }`}
+                            title="按圈数优先规则重排"
+                        >
+                            <ArrowUpDown className="w-3.5 h-3.5" />
+                            {useRerankedLeaderboard ? '已重排' : '重新排名'}
+                        </button>
+                    ) : null}
                     <span className="text-xs text-slate-500 font-mono bg-slate-900 px-2 py-1 rounded whitespace-nowrap">
                         {classFilter === 'all'
                             ? `${lines.length} 位车手`
@@ -116,26 +202,31 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                     </span>
                     <button
                         type="button"
-                        onClick={() =>
-                            exportLeaderboardToCSV(
-                                lines,
-                                sessionType,
-                                penalties,
-                                trackName,
-                                sessionName,
-                                CAR_MODELS,
-                                manualPenaltyMsByCarId
-                            )
-                        }
-                        className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
-                        title="导出 CSV"
+                        onClick={() => setShowExportModal(true)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 transition-colors text-xs font-mono"
+                        title="导出"
                     >
                         <Download className="w-4 h-4" />
+                        导出
                     </button>
                 </div>
             </div>
 
             <div className="overflow-x-auto">
+                {sessionType === 'R' && hasAnomaly ? (
+                    <div
+                        className="mx-3 mt-3 mb-1 px-3 py-2 rounded-lg border text-xs font-mono flex items-start gap-2 bg-amber-950/30 border-amber-700/60 text-amber-200"
+                    >
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <div className="leading-relaxed">
+                            检测到 {anomalies.length} 处潜在排名异常，分别为{' '}
+                            {anomalyRaceNumbers.length > 0
+                                ? anomalyRaceNumbers.map((num) => `#${num}`).join('、')
+                                : '相关车号'}
+                            。可点击「重新排名」按“圈数优先、含罚时完赛时间次之”重排。
+                        </div>
+                    </div>
+                ) : null}
                 <table className="w-full min-w-[880px] xl:min-w-[1260px] text-left text-sm table-auto">
                     <thead>
                         <tr className="bg-slate-900 text-slate-400 font-mono text-xs uppercase tracking-wider">
@@ -149,6 +240,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                             </th>
                             <th className="p-3 text-right whitespace-nowrap min-w-[4.5rem]">差距</th>
                             <th className="p-3 text-right whitespace-nowrap min-w-[5.5rem]">罚时</th>
+                            <th className="p-3 text-center whitespace-nowrap min-w-[6rem]">处罚</th>
                             {isRace ? (
                                 <th className="p-3 text-right whitespace-nowrap min-w-[6.5rem]">含罚时完赛</th>
                             ) : null}
@@ -159,7 +251,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                         {visibleLines.length === 0 ? (
                             <tr>
                                 <td
-                                    colSpan={isRace ? 10 : 9}
+                                    colSpan={isRace ? 11 : 10}
                                     className="p-8 text-center text-slate-500 text-sm"
                                 >
                                     {classFilter === 'all'
@@ -202,16 +294,16 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                                 totalTimeRaw &&
                                 totalTimeRaw !== 2147483647;
                             const penaltyBadges = getCarSessionPenaltyBadgeLabels(cid, penalties);
-                            const showBadgesInRank =
-                                penaltyBadges.length > 0 && (isSelected || hoverCarId === cid);
+                            const hasManualDsq = penalties.some(
+                                (p) => p.carId === cid && p.penalty === 'Disqualified' && p.reason === 'Manual DSQ'
+                            );
+                            const penaltyDisplayLabels = hasManualDsq ? [...penaltyBadges, 'DSQ'] : penaltyBadges;
                             const highlightNumber = carHasNonDsqJsonPenalties(cid, penalties);
 
                             return (
                                 <tr
                                     key={line.car.carId}
                                     onClick={() => onSelectDriver(line.car.carId)}
-                                    onMouseEnter={() => setHoverCarId(cid)}
-                                    onMouseLeave={() => setHoverCarId(null)}
                                     className={`
                                         cursor-pointer transition-colors hover:bg-slate-700/50
                                         ${isSelected ? 'bg-slate-700 border-l-4 border-red-500' : 'border-l-4 border-transparent'}
@@ -220,24 +312,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                                 >
                                     <td className="p-3 text-center font-bold text-slate-300 align-middle min-w-[4.5rem]">
                                         {dsq ? (
-                                            <div className="flex flex-col items-center gap-1">
-                                                <span className="text-red-400 text-xs font-mono">DSQ</span>
-                                                {showBadgesInRank ? (
-                                                    <span
-                                                        className="text-[10px] font-mono font-semibold text-yellow-400 leading-tight max-w-[5rem] break-words"
-                                                        title={penaltyBadges.join(' · ')}
-                                                    >
-                                                        {penaltyBadges.join(' · ')}
-                                                    </span>
-                                                ) : null}
-                                            </div>
-                                        ) : showBadgesInRank ? (
-                                            <span
-                                                className="text-[11px] font-mono font-semibold text-yellow-400 leading-snug block max-w-[5.5rem] mx-auto break-words"
-                                                title={penaltyBadges.join(' · ')}
-                                            >
-                                                {penaltyBadges.join(' · ')}
-                                            </span>
+                                            <span className="text-red-400 text-xs font-mono">DSQ</span>
                                         ) : isWinner ? (
                                             <Crown className="w-4 h-4 text-yellow-500 mx-auto" />
                                         ) : (
@@ -295,6 +370,15 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                                     >
                                         {formatPenaltyDelta(totalPenaltyMs)}
                                     </td>
+                                    <td className="p-3 text-center font-mono text-[11px] text-yellow-400/90">
+                                        {penaltyDisplayLabels.length > 0 ? (
+                                            <span className="inline-block leading-snug break-words max-w-[8rem]" title={penaltyDisplayLabels.join(' ')}>
+                                                {penaltyDisplayLabels.join(' ')}
+                                            </span>
+                                        ) : (
+                                            <span className="text-slate-600">—</span>
+                                        )}
+                                    </td>
                                     {isRace ? (
                                         <td className="p-3 text-right font-mono text-xs text-slate-300">
                                             {dsq || !showWithPenalty ? '—' : formatTime(totalTimeRaw + totalPenaltyMs)}
@@ -315,12 +399,116 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                         </span>
                     ) : null}
                     <span className="block">
-                        {isRace && anyManual
-                            ? '已输入手动罚时：正赛名次与「差距」按含罚时完赛重排；「完赛时间」列仍为服务器原始成绩。'
-                            : '名次与差距以服务器原始成绩为准；罚时列为 JSON 时间罚与手动罚时之和。输入手动罚时后将按含罚时重排名次。'}
+                        {isRace && useRerankedLeaderboard
+                            ? '当前为手动重排视图：名次与差距按“圈数优先 + 含罚时完赛时间”计算；「完赛时间」列仍为服务器原始成绩。'
+                            : isRace && anyManual
+                                ? '已输入手动罚时：默认视图下名次与差距仍以服务器原始顺序为准，可点击「重新排名」按圈数与含罚时重排。'
+                                : '名次与差距以服务器原始成绩为准；罚时列为 JSON 时间罚与手动罚时之和。需要时可点击「重新排名」按圈数与含罚时重排。'}
                     </span>
                 </p>
             </div>
+            {showRerankModal ? (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-2xl bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                            <h4 className="text-sm font-bold text-white">重新排名已应用</h4>
+                            <button
+                                type="button"
+                                onClick={() => setShowRerankModal(false)}
+                                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700"
+                                aria-label="关闭"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="px-4 py-3 text-sm text-slate-300 space-y-2">
+                            <p>已按“圈数优先、含罚时完赛时间次之”完成重排。</p>
+                            {rerankChanges.length === 0 ? (
+                                <p className="text-emerald-300">名次无变化，无需调整详情列表。</p>
+                            ) : (
+                                <>
+                                    <p className="text-amber-300">修改详情列表（共 {rerankChanges.length} 项）：</p>
+                                    <div className="max-h-72 overflow-auto rounded-lg border border-slate-700">
+                                        <table className="w-full text-xs font-mono">
+                                            <thead className="bg-slate-900 text-slate-400">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left">车号</th>
+                                                    <th className="px-3 py-2 text-left">车手</th>
+                                                    <th className="px-3 py-2 text-right">原名次</th>
+                                                    <th className="px-3 py-2 text-right">新名次</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-700/60">
+                                                {rerankChanges.map((item) => (
+                                                    <tr key={item.carId} className="text-slate-200">
+                                                        <td className="px-3 py-2">#{item.raceNumber}</td>
+                                                        <td className="px-3 py-2">{item.driverName}</td>
+                                                        <td className="px-3 py-2 text-right">{item.oldRank}</td>
+                                                        <td className="px-3 py-2 text-right">{item.newRank}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <div className="px-4 py-3 border-t border-slate-700 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShowRerankModal(false)}
+                                className="px-3 py-1.5 rounded-md bg-red-600/90 text-white text-xs font-semibold hover:bg-red-500"
+                            >
+                                知道了
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {showExportModal ? (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-sm bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                            <h4 className="text-sm font-bold text-white">选择导出格式</h4>
+                            <button
+                                type="button"
+                                onClick={() => setShowExportModal(false)}
+                                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700"
+                                aria-label="关闭"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="px-4 py-4 space-y-2">
+                            <button
+                                type="button"
+                                onClick={handleExportCsv}
+                                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 transition-colors text-sm font-mono"
+                            >
+                                导出 CSV
+                            </button>
+                            {onExportJson ? (
+                                <button
+                                    type="button"
+                                    onClick={handleExportJson}
+                                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 transition-colors text-sm font-mono"
+                                >
+                                    导出 JSON
+                                </button>
+                            ) : null}
+                        </div>
+                        <div className="px-4 py-3 border-t border-slate-700 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShowExportModal(false)}
+                                className="px-3 py-1.5 rounded-md bg-slate-700 text-white text-xs font-semibold hover:bg-slate-600"
+                            >
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 };

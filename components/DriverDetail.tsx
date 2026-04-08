@@ -22,6 +22,8 @@ interface DriverDetailProps {
     penalties?: Penalty[];
     manualPenaltyMsByCarId?: Record<number, number>;
     onManualPenaltyChange?: (carId: number, ms: number) => void;
+    manualDsqByCarId?: Record<number, boolean>;
+    onManualDsqChange?: (carId: number, dsq: boolean) => void;
 }
 
 const DriverDetail: React.FC<DriverDetailProps> = ({
@@ -33,6 +35,8 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
     penalties = [],
     manualPenaltyMsByCarId = {},
     onManualPenaltyChange,
+    manualDsqByCarId = {},
+    onManualDsqChange,
 }) => {
     const [draftSec, setDraftSec] = useState('');
     const manualMsForCar =
@@ -65,6 +69,9 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
     const totalTimeRaw = driverLine.timing.totalTime;
     const canShowWithPenalty =
         isRace && totalTimeRaw && totalTimeRaw !== 2147483647;
+    const isManualDsq = Boolean(manualDsqByCarId[carId]);
+    const hasAnyDsq = penalties.some((p) => p.carId === carId && p.penalty === 'Disqualified');
+    const isJsonDsq = hasAnyDsq && !isManualDsq;
 
     const personalBestSplits = [999999, 999999, 999999];
     driverLaps
@@ -155,7 +162,7 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
                     </p>
                 )}
 
-                {onManualPenaltyChange && (
+                {(onManualPenaltyChange || onManualDsqChange) && (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                         <label className="text-[10px] text-slate-500 whitespace-nowrap">手动加罚（秒）</label>
                         <input
@@ -181,6 +188,23 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
                         >
                             清除
                         </button>
+                        {onManualDsqChange ? (
+                            <button
+                                type="button"
+                                onClick={() => onManualDsqChange(carId, !isManualDsq)}
+                                disabled={isJsonDsq}
+                                className={`text-[10px] px-2 py-1 rounded border ${
+                                    isJsonDsq
+                                        ? 'border-slate-700 text-slate-600 cursor-not-allowed'
+                                        : isManualDsq
+                                            ? 'border-red-700/80 text-red-300 hover:text-white hover:bg-red-900/30'
+                                            : 'border-red-800/80 text-red-400 hover:text-red-200 hover:bg-red-950/40'
+                                }`}
+                                title={isJsonDsq ? '该车已在原始成绩中被 DSQ' : ''}
+                            >
+                                {isJsonDsq ? '已 DSQ' : isManualDsq ? '取消 DSQ' : 'DSQ'}
+                            </button>
+                        ) : null}
                     </div>
                 )}
 

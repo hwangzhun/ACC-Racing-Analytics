@@ -53,6 +53,15 @@ function isCarDisqualified(carId: number, penalties: Penalty[]): boolean {
   return penalties.some((p) => p.carId === carId && p.penalty === 'Disqualified');
 }
 
+function getRaceAdjustedFinishMsForRanking(
+  line: LeaderboardLine,
+  penalties: Penalty[],
+  manualPenaltyMsByCarId: Record<number, number>
+): number {
+  const adjusted = getRaceAdjustedFinishMs(line, penalties, manualPenaltyMsByCarId);
+  return adjusted == null ? Number.POSITIVE_INFINITY : adjusted;
+}
+
 /**
  * 与排行榜一致：正赛在存在任意手动罚时时，按含罚时完赛升序重排（DSQ 仍置后）；否则保持 JSON 顺序。
  */
@@ -89,6 +98,96 @@ export function sortLeaderboardLinesForDisplay(
   });
 
   return indexed.map((x) => x.line);
+}
+
+export interface LeaderboardAnomaly {
+  type: 'lap_count_order' | 'adjusted_time_order';
+  frontCarId: number;
+  behindCarId: number;
+  frontRaceNumber: number;
+  behindRaceNumber: number;
+  message: string;
+}
+
+/**
+ * 正赛重排：DSQ 最后；非 DSQ 按圈数降序，再按含罚时完赛升序；最终按原始顺序稳定。
+ */
+export function rerankLeaderboardByRaceRules(
+  lines: LeaderboardLine[],
+  sessionType: string,
+  penalties: Penalty[],
+  manualPenaltyMsByCarId: Record<number, number>
+): LeaderboardLine[] {
+  if (sessionType !== 'R') return sortLeaderboardLinesForDisplay(lines, sessionType, penalties, manualPenaltyMsByCarId);
+
+  const indexed = lines.map((line, origIndex) => ({ line, origIndex }));
+  indexed.sort((A, B) => {
+    const a = A.line;
+    const b = B.line;
+    const da = isCarDisqualified(a.car.carId, penalties);
+    const db = isCarDisqualified(b.car.carId, penalties);
+    if (da !== db) return da ? 1 : -1;
+    if (da && db) return A.origIndex - B.origIndex;
+
+    const lapDiff = b.timing.lapCount - a.timing.lapCount;
+    if (lapDiff !== 0) return lapDiff;
+
+    const adjA = getRaceAdjustedFinishMsForRanking(a, penalties, manualPenaltyMsByCarId);
+    const adjB = getRaceAdjustedFinishMsForRanking(b, penalties, manualPenaltyMsByCarId);
+    if (adjA !== adjB) return adjA - adjB;
+
+    return A.origIndex - B.origIndex;
+  });
+  return indexed.map((x) => x.line);
+}
+
+/**
+ * 检测当前展示顺序中的正赛异常：圈数逆序、同圈数含罚时完赛逆序（均忽略 DSQ）。
+ */
+export function detectLeaderboardAnomalies(
+  lines: LeaderboardLine[],
+  sessionType: string,
+  penalties: Penalty[],
+  manualPenaltyMsByCarId: Record<number, number>
+): LeaderboardAnomaly[] {
+  if (sessionType !== 'R' || lines.length < 2) return [];
+
+  const anomalies: LeaderboardAnomaly[] = [];
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const front = lines[i];
+    const behind = lines[i + 1];
+    if (isCarDisqualified(front.car.carId, penalties) || isCarDisqualified(behind.car.carId, penalties)) {
+      continue;
+    }
+
+    if (front.timing.lapCount < behind.timing.lapCount) {
+      anomalies.push({
+        type: 'lap_count_order',
+        frontCarId: front.car.carId,
+        behindCarId: behind.car.carId,
+        frontRaceNumber: front.car.raceNumber,
+        behindRaceNumber: behind.car.raceNumber,
+        message: `#${front.car.raceNumber} 圈数少于 #${behind.car.raceNumber}`,
+      });
+      continue;
+    }
+
+    if (front.timing.lapCount === behind.timing.lapCount) {
+      const frontAdj = getRaceAdjustedFinishMsForRanking(front, penalties, manualPenaltyMsByCarId);
+      const behindAdj = getRaceAdjustedFinishMsForRanking(behind, penalties, manualPenaltyMsByCarId);
+      if (frontAdj > behindAdj) {
+        anomalies.push({
+          type: 'adjusted_time_order',
+          frontCarId: front.car.carId,
+          behindCarId: behind.car.carId,
+          frontRaceNumber: front.car.raceNumber,
+          behindRaceNumber: behind.car.raceNumber,
+          message: `#${front.car.raceNumber} 与 #${behind.car.raceNumber} 同圈但完赛更慢`,
+        });
+      }
+    }
+  }
+  return anomalies;
 }
 
 /**
@@ -271,6 +370,27 @@ export function carClassBadgeClass(cls: string | null | undefined): string {
   return 'bg-slate-800 text-slate-400 border-slate-600';
 }
 
+function sanitizeFilenamePart(value: string, fallback: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.replace(/[\\/:*?"<>|]/g, '_');
+}
+
+function formatExportDate(now = new Date()): string {
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function buildExportBaseName(serverName: string, trackName: string, sessionType: string): string {
+  const safeServer = sanitizeFilenamePart(serverName, '未知服务器');
+  const safeTrack = sanitizeFilenamePart(trackName, '未知赛道');
+  const safeSessionType = sanitizeFilenamePart(sessionType || 'U', 'U');
+  const datePart = formatExportDate();
+  return `${safeServer}-${safeTrack}-${safeSessionType}-${datePart}`;
+}
+
 /**
  * 导出排行榜数据为 CSV 格式
  */
@@ -281,14 +401,17 @@ export const exportLeaderboardToCSV = (
     trackName: string = '',
     sessionName: string = '',
     carModels: Record<number, string> = {},
-    manualPenaltyMsByCarId: Record<number, number> = {}
+    manualPenaltyMsByCarId: Record<number, number> = {},
+    preSortedLines?: LeaderboardLine[]
 ) => {
-    const sortedLines = sortLeaderboardLinesForDisplay(
-        lines,
-        sessionType,
-        penalties,
-        manualPenaltyMsByCarId
-    );
+    const sortedLines = preSortedLines
+        ? [...preSortedLines]
+        : sortLeaderboardLinesForDisplay(
+            lines,
+            sessionType,
+            penalties,
+            manualPenaltyMsByCarId
+        );
 
     const isDisqualified = (carId: number): boolean => {
         return penalties.some(p => p.carId === carId && p.penalty === 'Disqualified');
@@ -320,7 +443,7 @@ export const exportLeaderboardToCSV = (
         '组别',
         sessionType === 'R' ? '完赛时间' : '最快圈',
         '差距',
-        'JSON罚时(ms)',
+        '系统(ms)',
         '手动罚时(ms)',
         '罚时合计(ms)',
         ...(isRace ? [anyManual ? '含罚时完赛' : '含罚时完赛(参考)'] : []),
@@ -411,13 +534,33 @@ export const exportLeaderboardToCSV = (
     const link = document.createElement('a');
     link.href = url;
     
-    // 生成文件名
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    const sessionTypeName = sessionType === 'R' ? '正赛' : sessionType === 'Q' ? '排位' : '练习';
-    link.download = `排行榜_${trackName || '未知赛道'}_${sessionTypeName}_${timestamp}.csv`;
+    // 文件名：服务器-赛道-P/R/Q-日期
+    link.download = `${buildExportBaseName(sessionName, trackName, sessionType)}.csv`;
     
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 };
+
+/** 导出当前完整会话数据为 JSON */
+export function exportAllDataToJSON(
+  payload: unknown,
+  trackName: string = '',
+  sessionType: string = '',
+  serverName: string = ''
+): void {
+  const jsonText = JSON.stringify(payload, null, 2);
+  const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+
+  // 文件名：服务器-赛道-P/R/Q-日期
+  link.download = `${buildExportBaseName(serverName, trackName, sessionType)}.json`;
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
