@@ -1,6 +1,7 @@
 import {
   getCarClassByModelId,
   type AccResultData,
+  type Lap,
   type LeaderboardLine,
   type Penalty,
 } from './types';
@@ -35,6 +36,30 @@ export function sumJsonTimePenaltyMs(carId: number, penalties: Penalty[]): numbe
 /** 是否存在任意手动罚时（用于正赛是否按含罚时重排名） */
 export function hasAnyManualPenaltyMs(manualPenaltyMsByCarId: Record<number, number>): boolean {
   return Object.values(manualPenaltyMsByCarId).some((ms) => ms > 0);
+}
+
+const INVALID_LAPTIME_MS = 2147483647;
+
+/** 全场最快有效圈对应的玩家 Steam ID（同圈速可多人） */
+export function getFastestValidLapPlayerIds(laps: Lap[], lines: LeaderboardLine[]): Set<string> {
+  const valid = laps.filter(
+    (l) => l.isValidForBest && l.laptime > 0 && l.laptime < INVALID_LAPTIME_MS
+  );
+  if (valid.length === 0) return new Set();
+  const minT = Math.min(...valid.map((l) => l.laptime));
+  const byCar = new Map<number, LeaderboardLine>();
+  for (const line of lines) {
+    byCar.set(line.car.carId, line);
+  }
+  const ids = new Set<string>();
+  for (const lap of valid) {
+    if (lap.laptime !== minT) continue;
+    const line = byCar.get(lap.carId);
+    const driver = line?.car.drivers[lap.driverIndex];
+    const pid = driver?.playerId?.trim();
+    if (pid) ids.add(pid);
+  }
+  return ids;
 }
 
 /** 正赛：官方 totalTime + JSON 计入罚时 + 手动罚时；无效完赛或 DSQ 前勿用 null 参与排序比较 */

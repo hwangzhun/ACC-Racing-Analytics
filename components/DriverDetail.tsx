@@ -24,6 +24,7 @@ interface DriverDetailProps {
     onManualPenaltyChange?: (carId: number, ms: number) => void;
     manualDsqByCarId?: Record<number, boolean>;
     onManualDsqChange?: (carId: number, dsq: boolean) => void;
+    fastestValidLapPlayerIds?: Set<string>;
 }
 
 const DriverDetail: React.FC<DriverDetailProps> = ({
@@ -37,6 +38,7 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
     onManualPenaltyChange,
     manualDsqByCarId = {},
     onManualDsqChange,
+    fastestValidLapPlayerIds = new Set<string>(),
 }) => {
     const [draftSec, setDraftSec] = useState('');
     const manualMsForCar =
@@ -103,10 +105,31 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
             <div className="p-4 bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-700">
                 <div className="flex justify-between items-start">
                     <div>
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="text-2xl font-black text-white italic">#{driverLine.car.raceNumber}</span>
-                            <span className="text-lg font-bold text-slate-200">
-                                {driverLine.currentDriver.firstName} {driverLine.currentDriver.lastName}
+                            <span className="text-lg font-bold flex flex-wrap items-center gap-x-1.5 gap-y-0">
+                                {driverLine.car.drivers.map((d, i) => {
+                                    const n = `${d.firstName} ${d.lastName}`.trim() || d.shortName;
+                                    const isFastestLapDriver = fastestValidLapPlayerIds.has(
+                                        (d.playerId ?? '').trim()
+                                    );
+                                    return (
+                                        <span key={`${d.playerId}-${i}`} className="inline-flex items-center gap-1.5">
+                                            {i > 0 ? (
+                                                <span className="text-slate-600 font-normal" aria-hidden>
+                                                    ·
+                                                </span>
+                                            ) : null}
+                                            <span
+                                                className={
+                                                    isFastestLapDriver ? 'text-purple-400' : 'text-slate-200'
+                                                }
+                                            >
+                                                {n}
+                                            </span>
+                                        </span>
+                                    );
+                                })}
                             </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -118,6 +141,19 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
                             <p className="text-xs text-slate-400 font-mono">
                                 {CAR_MODELS[driverLine.car.carModel] || `车型 ${driverLine.car.carModel}`}
                             </p>
+                        </div>
+                        <div className="mt-1.5 text-[10px] font-mono leading-snug break-all max-w-[min(100%,24rem)] text-slate-500">
+                            {driverLine.car.drivers.map((d, i) => (
+                                <span key={`${d.playerId}-${i}`}>
+                                    {i > 0 ? (
+                                        <span className="text-slate-600" aria-hidden>
+                                            {' '}
+                                            ·{' '}
+                                        </span>
+                                    ) : null}
+                                    <span title={d.playerId}>{d.playerId}</span>
+                                </span>
+                            ))}
                         </div>
                     </div>
                     <div className="text-right">

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Header from './components/Header';
 import Leaderboard from './components/Leaderboard';
 import DriverDetail from './components/DriverDetail';
@@ -11,6 +11,7 @@ import {
     sortLeaderboardLinesForDisplay,
     rerankLeaderboardByRaceRules,
     exportAllDataToJSON,
+    getFastestValidLapPlayerIds,
 } from './utils';
 
 export type LeaderboardClassFilter = 'all' | CarPerformanceClass;
@@ -152,6 +153,13 @@ const App: React.FC = () => {
         type: 0,
     };
     const laps = data?.laps ?? [];
+    const fastestValidLapPlayerIds = useMemo(
+        () =>
+            data
+                ? getFastestValidLapPlayerIds(data.laps, data.sessionResult.leaderBoardLines)
+                : new Set<string>(),
+        [data]
+    );
     const penaltiesBase = data
         ? [...(data.penalties ?? []), ...(data.post_race_penalties ?? [])]
         : [];
@@ -348,6 +356,7 @@ const App: React.FC = () => {
                                 useRerankedLeaderboard={useRerankedLeaderboard}
                                 onUseRerankedLeaderboardChange={setUseRerankedLeaderboard}
                                 onExportJson={handleExportJson}
+                                fastestValidLapPlayerIds={fastestValidLapPlayerIds}
                             />
                         </div>
 
@@ -365,6 +374,7 @@ const App: React.FC = () => {
                                     onManualPenaltyChange={setManualPenaltyForCar}
                                     manualDsqByCarId={manualDsqByCarId}
                                     onManualDsqChange={setManualDsqForCar}
+                                    fastestValidLapPlayerIds={fastestValidLapPlayerIds}
                                 />
                             </div>
                         </div>

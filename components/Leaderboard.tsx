@@ -46,6 +46,7 @@ interface LeaderboardProps {
     useRerankedLeaderboard: boolean;
     onUseRerankedLeaderboardChange: (enabled: boolean) => void;
     onExportJson?: () => void;
+    fastestValidLapPlayerIds: Set<string>;
 }
 
 const Leaderboard: React.FC<LeaderboardProps> = ({
@@ -62,6 +63,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
     useRerankedLeaderboard,
     onUseRerankedLeaderboardChange,
     onExportJson,
+    fastestValidLapPlayerIds,
 }) => {
     const [showRerankModal, setShowRerankModal] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
@@ -264,9 +266,9 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                             const isSelected = selectedCarId === line.car.carId;
                             const dsq = isDisqualified(line.car.carId);
                             const isWinner = index === 0 && !dsq;
-                            const driverName =
-                                `${line.currentDriver.firstName} ${line.currentDriver.lastName}`.trim() ||
-                                line.currentDriver.shortName;
+                            const driverNamesTitle = line.car.drivers
+                                .map((d) => `${d.firstName} ${d.lastName}`.trim() || d.shortName)
+                                .join(' · ');
                             const carName = CAR_MODELS[line.car.carModel] || `车型 ${line.car.carModel}`;
                             const carClass = getCarClassByModelId(line.car.carModel);
                             const classLabel = carClass ?? '—';
@@ -331,8 +333,46 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                                         </div>
                                     </td>
                                     <td className="p-3">
-                                        <div className="font-bold text-white truncate" title={driverName}>
-                                            {driverName}
+                                        <div className="font-bold truncate" title={driverNamesTitle}>
+                                            {line.car.drivers.map((d, i) => {
+                                                const n =
+                                                    `${d.firstName} ${d.lastName}`.trim() || d.shortName;
+                                                const isFastestLapDriver = fastestValidLapPlayerIds.has(
+                                                    (d.playerId ?? '').trim()
+                                                );
+                                                return (
+                                                    <span key={`${d.playerId}-${i}`}>
+                                                        {i > 0 ? (
+                                                            <span className="text-slate-500 font-normal" aria-hidden>
+                                                                {' '}
+                                                                ·{' '}
+                                                            </span>
+                                                        ) : null}
+                                                        <span
+                                                            className={
+                                                                isFastestLapDriver
+                                                                    ? 'text-purple-400'
+                                                                    : 'text-white'
+                                                            }
+                                                        >
+                                                            {n}
+                                                        </span>
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-1 text-[10px] font-mono leading-snug break-all max-w-[min(100%,22rem)] text-slate-500">
+                                            {line.car.drivers.map((d, i) => (
+                                                <span key={`${d.playerId}-${i}`}>
+                                                    {i > 0 ? (
+                                                        <span className="text-slate-600" aria-hidden>
+                                                            {' '}
+                                                            ·{' '}
+                                                        </span>
+                                                    ) : null}
+                                                    <span title={d.playerId}>{d.playerId}</span>
+                                                </span>
+                                            ))}
                                         </div>
                                         <div className="mt-1 xl:hidden flex flex-wrap items-center gap-1.5">
                                             <span
