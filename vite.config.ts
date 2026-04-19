@@ -2,6 +2,8 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 // GitHub Pages 项目站为 https://<user>.github.io/<仓库名>/，需与仓库路径一致
 const PAGES_BASE = '/ACC-Racing-Analytics/';
 
@@ -14,7 +16,7 @@ export default defineConfig(({ mode }) => ({
     port: 3000,
     host: '0.0.0.0',
   },
-  plugins: [react()],
+  plugins: [react(), cloudflare()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
