@@ -193,7 +193,7 @@ const DriverDetail: React.FC<DriverDetailProps> = ({
 
                 {canShowWithPenalty && (
                     <p className="mt-2 text-[11px] font-mono text-slate-400">
-                        含罚时完赛（参考）：{' '}
+                        最终成绩（参考）：{' '}
                         <span className="text-slate-200">{formatTime(totalTimeRaw + totalPenaltyMs)}</span>
                     </p>
                 )}

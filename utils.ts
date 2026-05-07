@@ -88,7 +88,7 @@ function getRaceAdjustedFinishMsForRanking(
 }
 
 /**
- * 与排行榜一致：正赛在存在任意手动罚时时，按含罚时完赛升序重排（DSQ 仍置后）；否则保持 JSON 顺序。
+ * 与排行榜一致：正赛在存在任意手动罚时时，按最终成绩升序重排（DSQ 仍置后）；否则保持 JSON 顺序。
  */
 export function sortLeaderboardLinesForDisplay(
   lines: LeaderboardLine[],
@@ -135,7 +135,7 @@ export interface LeaderboardAnomaly {
 }
 
 /**
- * 正赛重排：DSQ 最后；非 DSQ 按圈数降序，再按含罚时完赛升序；最终按原始顺序稳定。
+ * 正赛重排：DSQ 最后；非 DSQ 按圈数降序，再按最终成绩升序；最终按原始顺序稳定。
  */
 export function rerankLeaderboardByRaceRules(
   lines: LeaderboardLine[],
@@ -167,7 +167,7 @@ export function rerankLeaderboardByRaceRules(
 }
 
 /**
- * 检测当前展示顺序中的正赛异常：圈数逆序、同圈数含罚时完赛逆序（均忽略 DSQ）。
+ * 检测当前展示顺序中的正赛异常：圈数逆序、同圈数最终成绩逆序（均忽略 DSQ）。
  */
 export function detectLeaderboardAnomalies(
   lines: LeaderboardLine[],
@@ -260,6 +260,13 @@ export function formatPenaltyDelta(ms: number): string {
   const seconds = Math.floor((ms % 60000) / 1000);
   const milliseconds = ms % 1000;
   return `+${minutes}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+}
+
+/** 罚时展示（只到秒）：无罚时为 —，否则为 +Ns 总秒数；不足一秒向上取整避免显示 +0s。用于排行榜列表概览。 */
+export function formatPenaltyDeltaSeconds(ms: number): string {
+  if (!ms || ms <= 0) return '—';
+  const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
+  return `+${totalSeconds}s`;
 }
 
 /**
@@ -471,7 +478,7 @@ export const exportLeaderboardToCSV = (
         '系统(ms)',
         '手动罚时(ms)',
         '罚时合计(ms)',
-        ...(isRace ? [anyManual ? '含罚时完赛' : '含罚时完赛(参考)'] : []),
+        ...(isRace ? [anyManual ? '最终成绩' : '最终成绩(参考)'] : []),
         '圈数',
         '状态',
         '取消资格原因'

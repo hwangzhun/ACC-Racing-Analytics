@@ -12,7 +12,7 @@ import {
     exportLeaderboardToCSV,
     carClassBadgeClass,
     sumJsonTimePenaltyMs,
-    formatPenaltyDelta,
+    formatPenaltyDeltaSeconds,
     getCarSessionPenaltyBadgeLabels,
     carHasNonDsqJsonPenalties,
     sortLeaderboardLinesForDisplay,
@@ -225,7 +225,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                             {anomalyRaceNumbers.length > 0
                                 ? anomalyRaceNumbers.map((num) => `#${num}`).join('、')
                                 : '相关车号'}
-                            。可点击「重新排名」按“圈数优先、含罚时完赛时间次之”重排。
+                            。可点击「重新排名」按“圈数优先、最终成绩次之”重排。
                         </div>
                     </div>
                 ) : null}
@@ -244,7 +244,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                             <th className="p-3 text-right whitespace-nowrap min-w-[5.5rem]">罚时</th>
                             <th className="p-3 text-center whitespace-nowrap min-w-[6rem]">处罚</th>
                             {isRace ? (
-                                <th className="p-3 text-right whitespace-nowrap min-w-[6.5rem]">含罚时完赛</th>
+                                <th className="p-3 text-right whitespace-nowrap min-w-[6.5rem]">最终成绩</th>
                             ) : null}
                             <th className="p-3 text-center whitespace-nowrap w-16">圈数</th>
                         </tr>
@@ -408,7 +408,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                                             totalPenaltyMs > 0 ? 'text-amber-300/90' : 'text-slate-500'
                                         }`}
                                     >
-                                        {formatPenaltyDelta(totalPenaltyMs)}
+                                        {formatPenaltyDeltaSeconds(totalPenaltyMs)}
                                     </td>
                                     <td className="p-3 text-center font-mono text-[11px] text-yellow-400/90">
                                         {penaltyDisplayLabels.length > 0 ? (
@@ -440,7 +440,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                     ) : null}
                     <span className="block">
                         {isRace && useRerankedLeaderboard
-                            ? '当前为手动重排视图：名次与差距按“圈数优先 + 含罚时完赛时间”计算；「完赛时间」列仍为服务器原始成绩。'
+                            ? '当前为手动重排视图：名次与差距按“圈数优先 + 最终成绩”计算；「完赛时间」列仍为服务器原始成绩。'
                             : isRace && anyManual
                                 ? '已输入手动罚时：默认视图下名次与差距仍以服务器原始顺序为准，可点击「重新排名」按圈数与含罚时重排。'
                                 : '名次与差距以服务器原始成绩为准；罚时列为 JSON 时间罚与手动罚时之和。需要时可点击「重新排名」按圈数与含罚时重排。'}
@@ -462,7 +462,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                             </button>
                         </div>
                         <div className="px-4 py-3 text-sm text-slate-300 space-y-2">
-                            <p>已按“圈数优先、含罚时完赛时间次之”完成重排。</p>
+                            <p>已按“圈数优先、最终成绩次之”完成重排。</p>
                             {rerankChanges.length === 0 ? (
                                 <p className="text-emerald-300">名次无变化，无需调整详情列表。</p>
                             ) : (
