@@ -214,13 +214,20 @@ const App: React.FC = () => {
             const carId = line.car.carId;
             const carLaps = data.laps
                 .filter((lap) => lap.carId === carId)
-                .map((lap, lapIndex) => ({
-                    lapNumber: lapIndex + 1,
-                    driverIndex: lap.driverIndex,
-                    lapTime: lap.laptime,
-                    isValidForBest: lap.isValidForBest,
-                    splits: lap.splits,
-                }));
+                .map((lap, lapIndex) => {
+                    const driver = line.car.drivers[lap.driverIndex];
+                    return {
+                        lapNumber: lapIndex + 1,
+                        driverIndex: lap.driverIndex,
+                        driverName: driver
+                            ? `${driver.firstName} ${driver.lastName}`.trim() || driver.shortName
+                            : null,
+                        playerId: driver?.playerId ?? null,
+                        lapTime: lap.laptime,
+                        isValidForBest: lap.isValidForBest,
+                        splits: lap.splits,
+                    };
+                });
             return {
                 carId,
                 raceNumber: line.car.raceNumber,
@@ -229,6 +236,49 @@ const App: React.FC = () => {
                 drivers: line.car.drivers,
                 laps: carLaps,
             };
+        });
+
+        const lapsByDriver: {
+            playerId: string;
+            driverName: string;
+            shortName: string;
+            carId: number;
+            raceNumber: number;
+            carName: string;
+            carModel: number;
+            laps: {
+                carLapNumber: number;
+                driverLapNumber: number;
+                lapTime: number;
+                isValidForBest: boolean;
+                splits: number[];
+            }[];
+        }[] = [];
+
+        data.sessionResult.leaderBoardLines.forEach((line) => {
+            line.car.drivers.forEach((driver, dIdx) => {
+                const driverCarLaps = data.laps
+                    .filter((lap) => lap.carId === line.car.carId && lap.driverIndex === dIdx)
+                    .map((lap, driverLapIndex) => ({
+                        carLapNumber: data.laps
+                            .filter((l) => l.carId === line.car.carId)
+                            .indexOf(lap) + 1,
+                        driverLapNumber: driverLapIndex + 1,
+                        lapTime: lap.laptime,
+                        isValidForBest: lap.isValidForBest,
+                        splits: lap.splits,
+                    }));
+                lapsByDriver.push({
+                    playerId: driver.playerId,
+                    driverName: `${driver.firstName} ${driver.lastName}`.trim() || driver.shortName,
+                    shortName: driver.shortName,
+                    carId: line.car.carId,
+                    raceNumber: line.car.raceNumber,
+                    carName: CAR_MODELS[line.car.carModel] || `车型 ${line.car.carModel}`,
+                    carModel: line.car.carModel,
+                    laps: driverCarLaps,
+                });
+            });
         });
 
         exportAllDataToJSON(
@@ -271,6 +321,7 @@ const App: React.FC = () => {
                     manual: manualPenaltyEntries,
                 },
                 lapsByCar,
+                lapsByDriver,
                 rawData: data,
             },
             data.trackName,
