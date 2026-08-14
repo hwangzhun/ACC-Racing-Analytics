@@ -1,1 +1,125 @@
 /* 预留全局样式；主要样式由 Tailwind CDN 与各组件 className 提供 */
+
+/* CSV 预览：沿用站点的 slate 深色基调，以红色作为交互强调色。 */
+.csv-preview-grid.tabulator {
+  border: 0;
+  background: #0f172a;
+  color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.csv-preview-grid.tabulator .tabulator-header {
+  border-bottom: 1px solid #475569;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.csv-preview-grid.tabulator .tabulator-header .tabulator-col {
+  border-right: 1px solid #334155;
+  background: #0f172a;
+}
+
+.csv-preview-grid.tabulator .tabulator-header .tabulator-col:hover {
+  background: #1e293b;
+}
+
+.csv-preview-grid.tabulator .tabulator-header .tabulator-col-content {
+  padding: 0.6rem 0.7rem;
+}
+
+.csv-preview-grid.tabulator .tabulator-header-filter input {
+  border: 1px solid #475569;
+  border-radius: 0.375rem;
+  background: #020617;
+  color: #e2e8f0;
+  padding: 0.35rem 0.5rem;
+  outline: none;
+}
+
+.csv-preview-grid.tabulator .tabulator-header-filter input::placeholder {
+  color: #64748b;
+}
+
+.csv-preview-grid.tabulator .tabulator-header-filter input:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.35);
+}
+
+.csv-preview-grid.tabulator .tabulator-tableholder {
+  background: #0f172a;
+}
+
+.csv-preview-grid.tabulator .tabulator-row {
+  border-bottom: 1px solid rgba(51, 65, 85, 0.75);
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.csv-preview-grid.tabulator .tabulator-row.tabulator-row-even {
+  background: #182235;
+}
+
+.csv-preview-grid.tabulator .tabulator-row:hover {
+  background: #273449;
+}
+
+.csv-preview-grid.tabulator .tabulator-row .tabulator-cell {
+  border-right: 1px solid rgba(51, 65, 85, 0.75);
+  padding: 0.55rem 0.7rem;
+}
+
+.csv-preview-grid.tabulator .tabulator-footer {
+  border-top: 1px solid #475569;
+  background: #0f172a;
+  color: #94a3b8;
+}
+
+.csv-preview-grid.tabulator .tabulator-footer .tabulator-page {
+  border: 1px solid #475569;
+  border-radius: 0.375rem;
+  background: #1e293b;
+  color: #cbd5e1;
+}
+
+.csv-preview-grid.tabulator .tabulator-footer .tabulator-page:not(:disabled):hover {
+  border-color: #64748b;
+  background: #334155;
+  color: #fff;
+}
+
+.csv-preview-grid.tabulator .tabulator-footer .tabulator-page.active {
+  border-color: #ef4444;
+  background: rgba(153, 27, 27, 0.55);
+  color: #fff;
+}
+
+.csv-preview-grid.tabulator .tabulator-placeholder {
+  background: #0f172a;
+  color: #64748b;
+}
+
+.csv-preview-grid.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range {
+  border: 2px solid #ef4444;
+}
+
+.csv-preview-grid.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range.tabulator-range-active::after {
+  background: #ef4444;
+}
+
+.csv-preview-grid.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active {
+  border-color: #f87171;
+}
+
+.csv-preview-grid.tabulator .tabulator-row .tabulator-cell.tabulator-range-selected:not(.tabulator-range-only-cell-selected):not(.tabulator-range-row-header) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.csv-preview-grid.tabulator .tabulator-header .tabulator-col.tabulator-range-highlight {
+  background: #3f2632;
+  color: #fecaca;
+}
+
+.csv-preview-grid.tabulator .tabulator-header .tabulator-col.tabulator-range-selected {
+  background: #7f1d1d;
+  color: #fff;
+}

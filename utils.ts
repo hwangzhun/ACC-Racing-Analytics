@@ -423,10 +423,15 @@ function buildExportBaseName(serverName: string, trackName: string, sessionType:
   return `${safeServer}-${safeTrack}-${safeSessionType}-${datePart}`;
 }
 
-/**
- * 导出排行榜数据为 CSV 格式
- */
-export const exportLeaderboardToCSV = (
+export interface LeaderboardCsvData {
+    headers: string[];
+    rows: string[][];
+    csvContent: string;
+    filename: string;
+}
+
+/** 构建排行榜 CSV 数据，供网页预览和文件下载共用。 */
+export const buildLeaderboardCsvData = (
     lines: any[],
     sessionType: string,
     penalties: Penalty[] = [],
@@ -559,6 +564,36 @@ export const exportLeaderboardToCSV = (
         }).join(','))
     ].join('\n');
 
+    return {
+        headers,
+        rows,
+        csvContent,
+        filename: `${buildExportBaseName(sessionName, trackName, sessionType)}.csv`,
+    };
+};
+
+/** 导出排行榜数据为 CSV 文件。 */
+export const exportLeaderboardToCSV = (
+    lines: any[],
+    sessionType: string,
+    penalties: Penalty[] = [],
+    trackName: string = '',
+    sessionName: string = '',
+    carModels: Record<number, string> = {},
+    manualPenaltyMsByCarId: Record<number, number> = {},
+    preSortedLines?: LeaderboardLine[]
+) => {
+    const { csvContent, filename } = buildLeaderboardCsvData(
+        lines,
+        sessionType,
+        penalties,
+        trackName,
+        sessionName,
+        carModels,
+        manualPenaltyMsByCarId,
+        preSortedLines
+    );
+
     // 添加 BOM 以支持中文 Excel 正确显示
     const BOM = '\uFEFF';
     const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -567,7 +602,7 @@ export const exportLeaderboardToCSV = (
     link.href = url;
     
     // 文件名：服务器-赛道-P/R/Q-日期
-    link.download = `${buildExportBaseName(sessionName, trackName, sessionType)}.csv`;
+    link.download = filename;
     
     document.body.appendChild(link);
     link.click();

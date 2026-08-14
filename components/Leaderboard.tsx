@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { ColumnDefinition, TabulatorFull } from 'tabulator-tables';
+import 'tabulator-tables/dist/css/tabulator_midnight.min.css';
 import {
     LeaderboardLine,
     CAR_MODELS,
@@ -10,6 +12,8 @@ import {
     formatTime,
     formatGap,
     exportLeaderboardToCSV,
+    buildLeaderboardCsvData,
+    type LeaderboardCsvData,
     carClassBadgeClass,
     sumJsonTimePenaltyMs,
     formatPenaltyDeltaSeconds,
@@ -21,7 +25,7 @@ import {
     hasAnyManualPenaltyMs,
     getRaceAdjustedFinishMs,
 } from '../utils';
-import { Crown, Timer, Download, AlertTriangle, ArrowUpDown, X } from 'lucide-react';
+import { Crown, Timer, Download, Eye, AlertTriangle, ArrowUpDown, X } from 'lucide-react';
 
 type LeaderboardClassFilter = 'all' | CarPerformanceClass;
 
@@ -49,6 +53,122 @@ interface LeaderboardProps {
     fastestValidLapPlayerIds: Set<string>;
 }
 
+
+interface CsvPreviewModalProps {
+    data: LeaderboardCsvData;
+    onClose: () => void;
+    onDownload: () => void;
+}
+
+const CsvPreviewModal: React.FC<CsvPreviewModalProps> = ({ data, onClose, onDownload }) => {
+    const tableElementRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!tableElementRef.current) return;
+
+        let table: TabulatorFull | null = null;
+        let cancelled = false;
+        const fields = data.headers.map((_, index) => `column_${index}`);
+        const tableRows = data.rows.map((row) =>
+            Object.fromEntries(fields.map((field, index) => [field, row[index] ?? '']))
+        );
+        const columns: ColumnDefinition[] = data.headers.map((title, index) => ({
+            title,
+            field: fields[index],
+            headerFilter: 'input',
+            minWidth: 110,
+            tooltip: true,
+        }));
+
+        void import('tabulator-tables').then(({ TabulatorFull: Tabulator }) => {
+            if (cancelled || !tableElementRef.current) return;
+
+            table = new Tabulator(tableElementRef.current, {
+                data: tableRows,
+                columns,
+                height: '100%',
+                layout: 'fitDataStretch',
+                movableColumns: true,
+                pagination: data.rows.length > 50,
+                paginationSize: 50,
+                paginationSizeSelector: [25, 50, 100],
+                selectableRows: false,
+                selectableRange: true,
+                selectableRangeColumns: true,
+                selectableRangeRows: false,
+                selectableRangeClearCells: false,
+                selectableRangeAutoFocus: true,
+                clipboard: 'copy',
+                clipboardCopyRowRange: 'range',
+                clipboardCopyHeader: false,
+                clipboardCopyStyled: false,
+                placeholder: '没有可预览的数据',
+            });
+        });
+
+        return () => {
+            cancelled = true;
+            table?.destroy();
+        };
+    }, [data]);
+
+    return (
+        <div
+            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5"
+            role="dialog"
+            aria-modal="true"
+            aria-label="CSV 预览"
+        >
+            <div className="w-full max-w-[96rem] h-[min(90vh,56rem)] bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col">
+                <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                        <h4 className="text-sm font-bold text-white">CSV 预览</h4>
+                        <p className="mt-0.5 text-xs text-slate-400 font-mono truncate" title={data.filename}>
+                            {data.filename}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700"
+                        aria-label="关闭 CSV 预览"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+                <div className="flex-1 min-h-0 p-3 bg-slate-900/40">
+                    <div
+                        ref={tableElementRef}
+                        className="csv-preview-grid h-full rounded-lg overflow-hidden border border-slate-700"
+                    />
+                </div>
+                <div className="px-4 py-3 border-t border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-xs text-slate-400 font-mono">
+                        共 {data.rows.length} 行 · 拖拽框选后按 Ctrl/Cmd+C 复制
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-3 py-1.5 rounded-md bg-slate-700 text-white text-xs font-semibold hover:bg-slate-600"
+                        >
+                            关闭
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onDownload}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-600/90 text-white text-xs font-semibold hover:bg-red-500"
+                        >
+                            <Download className="w-3.5 h-3.5" />
+                            下载 CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const Leaderboard: React.FC<LeaderboardProps> = ({
     lines,
     sessionType,
@@ -67,6 +187,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
 }) => {
     const [showRerankModal, setShowRerankModal] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
+    const [csvPreviewData, setCsvPreviewData] = useState<LeaderboardCsvData | null>(null);
     const sortedLines = useRerankedLeaderboard
         ? rerankLeaderboardByRaceRules(lines, sessionType, penalties, manualPenaltyMsByCarId)
         : sortLeaderboardLinesForDisplay(lines, sessionType, penalties, manualPenaltyMsByCarId);
@@ -128,6 +249,21 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
             CAR_MODELS,
             manualPenaltyMsByCarId,
             sortedLines
+        );
+        setShowExportModal(false);
+    };
+    const handlePreviewCsv = () => {
+        setCsvPreviewData(
+            buildLeaderboardCsvData(
+                lines,
+                sessionType,
+                penalties,
+                trackName,
+                sessionName,
+                CAR_MODELS,
+                manualPenaltyMsByCarId,
+                sortedLines
+            )
         );
         setShowExportModal(false);
     };
@@ -522,6 +658,14 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                         <div className="px-4 py-4 space-y-2">
                             <button
                                 type="button"
+                                onClick={handlePreviewCsv}
+                                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 transition-colors text-sm font-mono"
+                            >
+                                <Eye className="w-4 h-4" />
+                                预览 CSV
+                            </button>
+                            <button
+                                type="button"
                                 onClick={handleExportCsv}
                                 className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 transition-colors text-sm font-mono"
                             >
@@ -548,6 +692,13 @@ const Leaderboard: React.FC<LeaderboardProps> = ({
                         </div>
                     </div>
                 </div>
+            ) : null}
+            {csvPreviewData ? (
+                <CsvPreviewModal
+                    data={csvPreviewData}
+                    onClose={() => setCsvPreviewData(null)}
+                    onDownload={handleExportCsv}
+                />
             ) : null}
         </div>
     );
